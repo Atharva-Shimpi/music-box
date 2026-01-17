@@ -22,8 +22,9 @@ const octokit = new Octokit({
 
 const MAX_ITEMS = 10;
 const TRACK_WIDTH = 18;
-const DOT_MIN = 6;
-const DOT_MAX = 14;
+
+// 🔒 Fixed artist start column (key fix)
+const ARTIST_COLUMN = 42;
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -105,10 +106,12 @@ async function main() {
 
         const trackText = ellipsis(item.track, TRACK_WIDTH);
 
-        // Dot leader: short, capped, Spotify-style
-        const dotsCount = Math.min(
-          DOT_MAX,
-          Math.max(DOT_MIN, TRACK_WIDTH - visualLength(trackText))
+        // ✅ FIX: dots fill space up to a fixed artist column
+        const dotsCount = Math.max(
+          1,
+          ARTIST_COLUMN -
+            visualLength(prefix + trackText) -
+            1
         );
 
         const dots = repeat(".", dotsCount);
