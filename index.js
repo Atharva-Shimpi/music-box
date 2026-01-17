@@ -3,13 +3,17 @@ const Octokit = require("@octokit/rest");
 const fetch = require("node-fetch");
 const eaw = require("eastasianwidth");
 
-const { GIST_ID, GH_TOKEN, LASTFM_API_KEY } = process.env;
+const { GIST_ID, GH_TOKEN } = process.env;
 
+// 🔒 Robust env resolution
 const LASTFM_USERNAME =
   process.env.LFMUSERNAME || process.env.LASTFM_USERNAME;
 
-if (!LASTFM_USERNAME) {
-  console.error("Missing LFMUSERNAME");
+const LASTFM_API_KEY =
+  process.env.LASTFM_KEY || process.env.LASTFM_API_KEY;
+
+if (!LASTFM_USERNAME || !LASTFM_API_KEY) {
+  console.error("Missing Last.fm configuration");
   process.exit(0);
 }
 
@@ -56,9 +60,8 @@ async function getRecentTracks() {
 
   const res = await fetch(url);
   const json = await res.json();
-  return json && json.recenttracks && json.recenttracks.track
-    ? json.recenttracks.track
-    : [];
+
+  return json?.recenttracks?.track || [];
 }
 
 async function main() {
@@ -67,8 +70,8 @@ async function main() {
   const playCount = new Map();
 
   for (const t of tracks) {
-    if (t["@attr"] && t["@attr"].nowplaying === "true") continue;
-    if (!t.date || !t.date.uts) continue;
+    if (t["@attr"]?.nowplaying === "true") continue;
+    if (!t.date?.uts) continue;
 
     const playedAt = Number(t.date.uts) * 1000;
     if (now - playedAt > SEVEN_DAYS_MS) continue;
