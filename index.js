@@ -50,8 +50,8 @@ async function fetchJSON(url) {
   return res.json();
 }
 
-async function getTopTracks() {
-  // 1️⃣ Try weekly chart first
+async function getTopTracksSafe() {
+  // Try weekly chart
   const weeklyURL =
     `https://ws.audioscrobbler.com/2.0/?method=user.getweeklytrackchart` +
     `&user=${encodeURIComponent(LASTFM_USERNAME)}` +
@@ -67,7 +67,7 @@ async function getTopTracks() {
     }));
   }
 
-  // 2️⃣ Fallback → last 7 days top tracks (guaranteed)
+  // Fallback: last 7 days
   const fallbackURL =
     `https://ws.audioscrobbler.com/2.0/?method=user.gettoptracks` +
     `&user=${encodeURIComponent(LASTFM_USERNAME)}` +
@@ -78,46 +78,39 @@ async function getTopTracks() {
 
   const fallback = await fetchJSON(fallbackURL);
 
-  if (!fallback?.toptracks?.track?.length) {
-    throw new Error("No Last.fm track data available");
+  if (fallback?.toptracks?.track?.length) {
+    return fallback.toptracks.track.map(t => ({
+      name: t.name,
+      plays: Number(t.playcount),
+    }));
   }
 
-  return fallback.toptracks.track.map(t => ({
-    name: t.name,
-    plays: Number(t.playcount),
-  }));
+  // Absolute fallback: no crash
+  return [];
 }
 
 /* ---------- main ---------- */
 
 async function main() {
-  const tracks = (await getTopTracks()).slice(0, MAX_ITEMS);
-  const total = tracks.reduce((s, t) => s + t.plays, 0);
+  const tracks = (await getTopTracksSafe()).slice(0, MAX_ITEMS);
 
-  const lines = tracks.map(t => {
-    const title = padRight(
-      ellipsis(t.name, TITLE_WIDTH),
-      TITLE_WIDTH
-    );
+  let content;
 
-    const bar = progressBar((t.plays / total) * 100, BAR_LENGTH);
-    const count = String(t.plays).padStart(4);
+  if (!tracks.length) {
+    content = "No scrobbles in the last 7 days.";
+  } else {
+    const total = tracks.reduce((s, t) => s + t.plays, 0);
 
-    return `${title} ${bar} ${count}`;
-  });
+    content = tracks.map(t => {
+      const title = padRight(
+        ellipsis(t.name, TITLE_WIDTH),
+        TITLE_WIDTH
+      );
+      const bar = progressBar((t.plays / total) * 100, BAR_LENGTH);
+      const count = String(t.plays).padStart(4);
+      return `${title} ${bar} ${count}`;
+    }).join("\n");
+  }
 
   const gist = await octokit.gists.get({ gist_id: GIST_ID });
-  const filename = Object.keys(gist.data.files)[0];
-
-  await octokit.gists.update({
-    gist_id: GIST_ID,
-    files: {
-      [filename]: { content: lines.join("\n") },
-    },
-  });
-}
-
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+  const filename = Objec
