@@ -38,9 +38,9 @@ function padRight(str, width) {
   return diff > 0 ? str + " ".repeat(diff) : str;
 }
 
-function progressBar(pct, len) {
-  const filled = Math.round((pct / 100) * len);
-  return "█".repeat(filled) + "░".repeat(len - filled);
+function progressBar(percent, length) {
+  const filled = Math.round((percent / 100) * length);
+  return "█".repeat(filled) + "░".repeat(length - filled);
 }
 
 /* ---------- last.fm ---------- */
@@ -85,7 +85,7 @@ async function getTopTracksSafe() {
     }));
   }
 
-  // Absolute fallback: no crash
+  // Absolute fallback: no data
   return [];
 }
 
@@ -101,16 +101,33 @@ async function main() {
   } else {
     const total = tracks.reduce((s, t) => s + t.plays, 0);
 
-    content = tracks.map(t => {
-      const title = padRight(
-        ellipsis(t.name, TITLE_WIDTH),
-        TITLE_WIDTH
-      );
-      const bar = progressBar((t.plays / total) * 100, BAR_LENGTH);
-      const count = String(t.plays).padStart(4);
-      return `${title} ${bar} ${count}`;
-    }).join("\n");
+    content = tracks
+      .map(t => {
+        const title = padRight(
+          ellipsis(t.name, TITLE_WIDTH),
+          TITLE_WIDTH
+        );
+        const bar = progressBar((t.plays / total) * 100, BAR_LENGTH);
+        const count = String(t.plays).padStart(4);
+        return `${title} ${bar} ${count}`;
+      })
+      .join("\n");
   }
 
   const gist = await octokit.gists.get({ gist_id: GIST_ID });
-  const filename = Objec
+  const filename = Object.keys(gist.data.files)[0];
+
+  await octokit.gists.update({
+    gist_id: GIST_ID,
+    files: {
+      [filename]: { content },
+    },
+  });
+}
+
+/* ---------- run ---------- */
+
+main().catch(err => {
+  console.error("Unexpected error:", err);
+  process.exit(0); // never fail the workflow
+});
