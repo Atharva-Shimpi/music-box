@@ -3,18 +3,14 @@ const Octokit = require("@octokit/rest");
 const fetch = require("node-fetch");
 const eaw = require("eastasianwidth");
 
-const {
-  GIST_ID,
-  GH_TOKEN,
-  LASTFM_API_KEY,
-} = process.env;
+const { GIST_ID, GH_TOKEN, LASTFM_API_KEY } = process.env;
 
-// 🔒 Robust username resolution
 const LASTFM_USERNAME =
   process.env.LFMUSERNAME || process.env.LASTFM_USERNAME;
 
 if (!LASTFM_USERNAME) {
-  throw new Error("Last.fm username not configured (LFMUSERNAME)");
+  console.error("Missing LFMUSERNAME");
+  process.exit(0);
 }
 
 const octokit = new Octokit({
@@ -25,8 +21,6 @@ const MAX_ITEMS = 5;
 const BAR_LENGTH = 16;
 const TITLE_WIDTH = 28;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-
-/* ---------------- helpers ---------------- */
 
 function visualLength(str) {
   return [...str].reduce((l, c) => l + eaw.characterLength(c), 0);
@@ -51,33 +45,30 @@ function progressBar(percent, length) {
   return "█".repeat(filled) + "░".repeat(length - filled);
 }
 
-/* ---------------- last.fm ---------------- */
-
 async function getRecentTracks() {
   const url =
-    `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks` +
-    `&user=${encodeURIComponent(LASTFM_USERNAME)}` +
-    `&limit=200` +
-    `&api_key=${LASTFM_API_KEY}` +
-    `&format=json`;
+    "https://ws.audioscrobbler.com/2.0/?" +
+    "method=user.getrecenttracks" +
+    "&user=" + encodeURIComponent(LASTFM_USERNAME) +
+    "&limit=200" +
+    "&api_key=" + LASTFM_API_KEY +
+    "&format=json";
 
   const res = await fetch(url);
   const json = await res.json();
-
-  return json?.recenttracks?.track || [];
+  return json && json.recenttracks && json.recenttracks.track
+    ? json.recenttracks.track
+    : [];
 }
-
-/* ---------------- main ---------------- */
 
 async function main() {
   const now = Date.now();
   const tracks = await getRecentTracks();
-
   const playCount = new Map();
 
   for (const t of tracks) {
-    if (t["@attr"]?.nowplaying === "true") continue;
-    if (!t.date?.uts) continue;
+    if (t["@attr"] && t["@attr"].nowplaying === "true") continue;
+    if (!t.date || !t.date.uts) continue;
 
     const playedAt = Number(t.date.uts) * 1000;
     if (now - playedAt > SEVEN_DAYS_MS) continue;
@@ -96,7 +87,7 @@ async function main() {
       .sort((a, b) => b.plays - a.plays)
       .slice(0, MAX_ITEMS);
 
-    const totalPlays = ranked.reduce((s, t) => s + t.plays, 0);
+    const total = ranked.reduce((s, t) => s + t.plays, 0);
 
     content = ranked
       .map(t => {
@@ -104,12 +95,9 @@ async function main() {
           ellipsis(t.name, TITLE_WIDTH),
           TITLE_WIDTH
         );
-        const bar = progressBar(
-          (t.plays / totalPlays) * 100,
-          BAR_LENGTH
-        );
+        const bar = progressBar((t.plays / total) * 100, BAR_LENGTH);
         const count = String(t.plays).padStart(4);
-        return `${title} ${bar} ${count}`;
+        return title + " " + bar + " " + count;
       })
       .join("\n");
   }
@@ -125,4 +113,7 @@ async function main() {
   });
 }
 
-/* ---------------- run ------*
+main().catch(err => {
+  console.error(err);
+  process.exit(0);
+});
