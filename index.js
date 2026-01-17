@@ -21,9 +21,12 @@ const octokit = new Octokit({
 });
 
 const MAX_ITEMS = 10;
-const TRACK_WIDTH = 24;
-const ARTIST_WIDTH = 18;
-const TOTAL_WIDTH = 60;
+
+// 🔧 UI tuning (matches reference image)
+const TRACK_WIDTH = 20;
+const ARTIST_WIDTH = 16;
+const TOTAL_WIDTH = 54;
+
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 /* ---------- helpers ---------- */
@@ -69,7 +72,6 @@ async function main() {
   const now = Date.now();
   const tracks = await getRecentTracks();
 
-  // Aggregate by track + artist
   const playMap = new Map();
 
   for (const t of tracks) {
@@ -101,21 +103,18 @@ async function main() {
 
     content = ranked
       .map(item => {
-        const left = padRight(
-          ellipsis(item.track, TRACK_WIDTH),
-          TRACK_WIDTH
-        );
-
+        const left = ellipsis(item.track, TRACK_WIDTH);
         const right = ellipsis(item.artist, ARTIST_WIDTH);
 
         const dotsCount =
           TOTAL_WIDTH -
           visualLength(left) -
-          visualLength(right);
+          visualLength(right) -
+          2; // spaces around dots
 
         const dots = dotsCount > 0 ? ".".repeat(dotsCount) : "";
 
-        return `${left}${dots}${right}`;
+        return `${left} ${dots} ${right}`;
       })
       .join("\n");
   }
