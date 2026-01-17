@@ -7,8 +7,15 @@ const {
   GIST_ID,
   GH_TOKEN,
   LASTFM_API_KEY,
-  LASTFM_USERNAME,
 } = process.env;
+
+// 🔒 Robust username resolution
+const LASTFM_USERNAME =
+  process.env.LFMUSERNAME || process.env.LASTFM_USERNAME;
+
+if (!LASTFM_USERNAME) {
+  throw new Error("Last.fm username not configured (LFMUSERNAME)");
+}
 
 const octokit = new Octokit({
   auth: `token ${GH_TOKEN}`,
@@ -66,7 +73,6 @@ async function main() {
   const now = Date.now();
   const tracks = await getRecentTracks();
 
-  // Phase 1–3: filter + aggregate
   const playCount = new Map();
 
   for (const t of tracks) {
@@ -108,7 +114,6 @@ async function main() {
       .join("\n");
   }
 
-  // Update gist
   const gist = await octokit.gists.get({ gist_id: GIST_ID });
   const filename = Object.keys(gist.data.files)[0];
 
@@ -120,9 +125,4 @@ async function main() {
   });
 }
 
-/* ---------------- run ---------------- */
-
-main().catch(err => {
-  console.error("Unexpected error:", err);
-  process.exit(0); // never fail workflow
-});
+/* ---------------- run ------*
