@@ -3,6 +3,8 @@ const Octokit = require("@octokit/rest");
 const fetch = require("node-fetch");
 const eaw = require("eastasianwidth");
 
+/* ================= ENV ================= */
+
 const { GIST_ID, GH_TOKEN } = process.env;
 
 const LASTFM_USERNAME =
@@ -20,16 +22,18 @@ const octokit = new Octokit({
   auth: `token ${GH_TOKEN}`,
 });
 
-const MAX_ITEMS = 10;
+/* ================= CONFIG ================= */
 
-// 🔧 UI tuning (matches reference image)
-const TRACK_WIDTH = 20;
-const ARTIST_WIDTH = 16;
-const TOTAL_WIDTH = 54;
+const MAX_ITEMS = 10;
+const TOTAL_WIDTH = 64;
+
+const PREFIX_WIDTH = 6;   // "1 ▶  "
+const TRACK_WIDTH  = 22;
+const ARTIST_WIDTH = 18;
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-/* ---------- helpers ---------- */
+/* ================= UTILS ================= */
 
 function visualLength(str) {
   return [...str].reduce((l, c) => l + eaw.characterLength(c), 0);
@@ -44,12 +48,11 @@ function ellipsis(str, maxWidth) {
   return visualLength(str) > maxWidth ? out + "..." : str;
 }
 
-function padRight(str, width) {
-  const diff = width - visualLength(str);
-  return diff > 0 ? str + " ".repeat(diff) : str;
+function repeat(char, count) {
+  return count > 0 ? char.repeat(count) : "";
 }
 
-/* ---------- last.fm ---------- */
+/* ================= LAST.FM ================= */
 
 async function getRecentTracks() {
   const url =
@@ -66,11 +69,13 @@ async function getRecentTracks() {
   return json?.recenttracks?.track || [];
 }
 
-/* ---------- main ---------- */
+/* ================= MAIN ================= */
 
 async function main() {
   const now = Date.now();
   const tracks = await getRecentTracks();
+
+  /* ---- aggregate plays (last 7 days) ---- */
 
   const playMap = new Map();
 
@@ -81,7 +86,7 @@ async function main() {
     const playedAt = Number(t.date.uts) * 1000;
     if (now - playedAt > SEVEN_DAYS_MS) continue;
 
-    const track = t.name.trim();
+    const track  = t.name.trim();
     const artist = t.artist["#text"].trim();
     const key = `${track}|||${artist}`;
 
@@ -102,22 +107,35 @@ async function main() {
       .slice(0, MAX_ITEMS);
 
     content = ranked
-      .map(item => {
-        const left = ellipsis(item.track, TRACK_WIDTH);
-        const right = ellipsis(item.artist, ARTIST_WIDTH);
+      .map((item, index) => {
+        const rank = `${index + 1}`.padStart(2, " ");
+        const prefix = `${rank} ▶ `;
+
+        const trackText  = ellipsis(item.track, TRACK_WIDTH);
+        const artistText = ellipsis(item.artist, ARTIST_WIDTH);
 
         const dotsCount =
           TOTAL_WIDTH -
-          visualLength(left) -
-          visualLength(right) -
-          2; // spaces around dots
+          visualLength(prefix) -
+          visualLength(trackText) -
+          visualLength(artistText) -
+          4; // spaces + icon
 
-        const dots = dotsCount > 0 ? ".".repeat(dotsCount) : "";
+        const dots = repeat(".", dotsCount);
 
-        return `${left} ${dots} ${right}`;
+        return (
+          prefix +
+          trackText +
+          " " +
+          dots +
+          " 🎵 " +
+          artistText
+        );
       })
       .join("\n");
   }
+
+  /* ---- update gist ---- */
 
   const gist = await octokit.gists.get({ gist_id: GIST_ID });
   const filename = Object.keys(gist.data.files)[0];
