@@ -23,8 +23,8 @@ const octokit = new Octokit({
 const MAX_ITEMS = 10;
 const TRACK_WIDTH = 18;
 
-// 🔒 Fixed artist start column (key fix)
-const ARTIST_COLUMN = 42;
+// 🔧 Artist column pulled closer
+const ARTIST_COLUMN = 36;
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -100,13 +100,12 @@ async function main() {
       .slice(0, MAX_ITEMS);
 
     content = ranked
-      .map((item, index) => {
-        const rank = `${index + 1}`.padStart(2, " ");
-        const prefix = `${rank} ▶ `;
+      .map(item => {
+        const prefix = "▶ ";
 
         const trackText = ellipsis(item.track, TRACK_WIDTH);
 
-        // ✅ FIX: dots fill space up to a fixed artist column
+        // Fixed-column dot leader (keeps vertical alignment)
         const dotsCount = Math.max(
           1,
           ARTIST_COLUMN -
