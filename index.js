@@ -5,7 +5,6 @@ const eaw = require("eastasianwidth");
 
 const { GIST_ID, GH_TOKEN } = process.env;
 
-// 🔒 Robust env resolution
 const LASTFM_USERNAME =
   process.env.LFMUSERNAME || process.env.LASTFM_USERNAME;
 
@@ -21,10 +20,13 @@ const octokit = new Octokit({
   auth: `token ${GH_TOKEN}`,
 });
 
-const MAX_ITEMS = 5;
-const BAR_LENGTH = 16;
-const TITLE_WIDTH = 28;
+const MAX_ITEMS = 10;
+const TRACK_WIDTH = 24;
+const ARTIST_WIDTH = 18;
+const TOTAL_WIDTH = 60;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+/* ---------- helpers ---------- */
 
 function visualLength(str) {
   return [...str].reduce((l, c) => l + eaw.characterLength(c), 0);
@@ -44,10 +46,7 @@ function padRight(str, width) {
   return diff > 0 ? str + " ".repeat(diff) : str;
 }
 
-function progressBar(percent, length) {
-  const filled = Math.round((percent / 100) * length);
-  return "█".repeat(filled) + "░".repeat(length - filled);
-}
+/* ---------- last.fm ---------- */
 
 async function getRecentTracks() {
   const url =
@@ -64,10 +63,14 @@ async function getRecentTracks() {
   return json?.recenttracks?.track || [];
 }
 
+/* ---------- main ---------- */
+
 async function main() {
   const now = Date.now();
   const tracks = await getRecentTracks();
-  const playCount = new Map();
+
+  // Aggregate by track + artist
+  const playMap = new Map();
 
   for (const t of tracks) {
     if (t["@attr"]?.nowplaying === "true") continue;
@@ -76,31 +79,43 @@ async function main() {
     const playedAt = Number(t.date.uts) * 1000;
     if (now - playedAt > SEVEN_DAYS_MS) continue;
 
-    const name = t.name.trim();
-    playCount.set(name, (playCount.get(name) || 0) + 1);
+    const track = t.name.trim();
+    const artist = t.artist["#text"].trim();
+    const key = `${track}|||${artist}`;
+
+    playMap.set(key, (playMap.get(key) || 0) + 1);
   }
 
   let content;
 
-  if (playCount.size === 0) {
+  if (playMap.size === 0) {
     content = "No scrobbles in the last 7 days.";
   } else {
-    const ranked = [...playCount.entries()]
-      .map(([name, plays]) => ({ name, plays }))
+    const ranked = [...playMap.entries()]
+      .map(([key, plays]) => {
+        const [track, artist] = key.split("|||");
+        return { track, artist, plays };
+      })
       .sort((a, b) => b.plays - a.plays)
       .slice(0, MAX_ITEMS);
 
-    const total = ranked.reduce((s, t) => s + t.plays, 0);
-
     content = ranked
-      .map(t => {
-        const title = padRight(
-          ellipsis(t.name, TITLE_WIDTH),
-          TITLE_WIDTH
+      .map(item => {
+        const left = padRight(
+          ellipsis(item.track, TRACK_WIDTH),
+          TRACK_WIDTH
         );
-        const bar = progressBar((t.plays / total) * 100, BAR_LENGTH);
-        const count = String(t.plays).padStart(4);
-        return title + " " + bar + " " + count;
+
+        const right = ellipsis(item.artist, ARTIST_WIDTH);
+
+        const dotsCount =
+          TOTAL_WIDTH -
+          visualLength(left) -
+          visualLength(right);
+
+        const dots = dotsCount > 0 ? ".".repeat(dotsCount) : "";
+
+        return `${left}${dots}${right}`;
       })
       .join("\n");
   }
