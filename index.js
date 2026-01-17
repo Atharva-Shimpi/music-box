@@ -17,8 +17,9 @@ const octokit = new Octokit({
 const MAX_ITEMS = 5;
 const BAR_LENGTH = 16;
 const TITLE_WIDTH = 28;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-/* ---------- helpers ---------- */
+/* ---------------- helpers ---------------- */
 
 function visualLength(str) {
   return [...str].reduce((l, c) => l + eaw.characterLength(c), 0);
@@ -43,77 +44,71 @@ function progressBar(percent, length) {
   return "█".repeat(filled) + "░".repeat(length - filled);
 }
 
-/* ---------- last.fm ---------- */
+/* ---------------- last.fm ---------------- */
 
-async function fetchJSON(url) {
+async function getRecentTracks() {
+  const url =
+    `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks` +
+    `&user=${encodeURIComponent(LASTFM_USERNAME)}` +
+    `&limit=200` +
+    `&api_key=${LASTFM_API_KEY}` +
+    `&format=json`;
+
   const res = await fetch(url);
-  return res.json();
+  const json = await res.json();
+
+  return json?.recenttracks?.track || [];
 }
 
-async function getTopTracksSafe() {
-  // Try weekly chart
-  const weeklyURL =
-    `https://ws.audioscrobbler.com/2.0/?method=user.getweeklytrackchart` +
-    `&user=${encodeURIComponent(LASTFM_USERNAME)}` +
-    `&api_key=${LASTFM_API_KEY}` +
-    `&format=json`;
-
-  const weekly = await fetchJSON(weeklyURL);
-
-  if (weekly?.weeklytrackchart?.track?.length) {
-    return weekly.weeklytrackchart.track.map(t => ({
-      name: t.name,
-      plays: Number(t.playcount),
-    }));
-  }
-
-  // Fallback: last 7 days
-  const fallbackURL =
-    `https://ws.audioscrobbler.com/2.0/?method=user.gettoptracks` +
-    `&user=${encodeURIComponent(LASTFM_USERNAME)}` +
-    `&period=7day` +
-    `&limit=${MAX_ITEMS}` +
-    `&api_key=${LASTFM_API_KEY}` +
-    `&format=json`;
-
-  const fallback = await fetchJSON(fallbackURL);
-
-  if (fallback?.toptracks?.track?.length) {
-    return fallback.toptracks.track.map(t => ({
-      name: t.name,
-      plays: Number(t.playcount),
-    }));
-  }
-
-  // Absolute fallback: no data
-  return [];
-}
-
-/* ---------- main ---------- */
+/* ---------------- main ---------------- */
 
 async function main() {
-  const tracks = (await getTopTracksSafe()).slice(0, MAX_ITEMS);
+  const now = Date.now();
+  const tracks = await getRecentTracks();
+
+  // Phase 1–3: filter + aggregate
+  const playCount = new Map();
+
+  for (const t of tracks) {
+    if (t["@attr"]?.nowplaying === "true") continue;
+    if (!t.date?.uts) continue;
+
+    const playedAt = Number(t.date.uts) * 1000;
+    if (now - playedAt > SEVEN_DAYS_MS) continue;
+
+    const name = t.name.trim();
+    playCount.set(name, (playCount.get(name) || 0) + 1);
+  }
 
   let content;
 
-  if (!tracks.length) {
+  if (playCount.size === 0) {
     content = "No scrobbles in the last 7 days.";
   } else {
-    const total = tracks.reduce((s, t) => s + t.plays, 0);
+    const ranked = [...playCount.entries()]
+      .map(([name, plays]) => ({ name, plays }))
+      .sort((a, b) => b.plays - a.plays)
+      .slice(0, MAX_ITEMS);
 
-    content = tracks
+    const totalPlays = ranked.reduce((s, t) => s + t.plays, 0);
+
+    content = ranked
       .map(t => {
         const title = padRight(
           ellipsis(t.name, TITLE_WIDTH),
           TITLE_WIDTH
         );
-        const bar = progressBar((t.plays / total) * 100, BAR_LENGTH);
+        const bar = progressBar(
+          (t.plays / totalPlays) * 100,
+          BAR_LENGTH
+        );
         const count = String(t.plays).padStart(4);
         return `${title} ${bar} ${count}`;
       })
       .join("\n");
   }
 
+  // Update gist
   const gist = await octokit.gists.get({ gist_id: GIST_ID });
   const filename = Object.keys(gist.data.files)[0];
 
@@ -125,9 +120,9 @@ async function main() {
   });
 }
 
-/* ---------- run ---------- */
+/* ---------------- run ---------------- */
 
 main().catch(err => {
   console.error("Unexpected error:", err);
-  process.exit(0); // never fail the workflow
+  process.exit(0); // never fail workflow
 });
