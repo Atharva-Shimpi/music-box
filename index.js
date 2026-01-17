@@ -24,7 +24,7 @@ const MAX_ITEMS = 10;
 const TRACK_WIDTH = 18;
 
 // 🔧 Artist column pulled closer
-const ARTIST_COLUMN = 36;
+const ARTIST_COLUMN = 34;
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
