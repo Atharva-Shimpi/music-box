@@ -3,8 +3,6 @@ const Octokit = require("@octokit/rest");
 const fetch = require("node-fetch");
 const eaw = require("eastasianwidth");
 
-/* ================= ENV ================= */
-
 const { GIST_ID, GH_TOKEN } = process.env;
 
 const LASTFM_USERNAME =
@@ -22,18 +20,14 @@ const octokit = new Octokit({
   auth: `token ${GH_TOKEN}`,
 });
 
-/* ================= CONFIG ================= */
-
 const MAX_ITEMS = 10;
-const TOTAL_WIDTH = 64;
-
-const PREFIX_WIDTH = 6;   // "1 ▶  "
-const TRACK_WIDTH  = 22;
-const ARTIST_WIDTH = 18;
+const TRACK_WIDTH = 18;
+const DOT_MIN = 6;
+const DOT_MAX = 14;
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-/* ================= UTILS ================= */
+/* ---------- utils ---------- */
 
 function visualLength(str) {
   return [...str].reduce((l, c) => l + eaw.characterLength(c), 0);
@@ -52,7 +46,7 @@ function repeat(char, count) {
   return count > 0 ? char.repeat(count) : "";
 }
 
-/* ================= LAST.FM ================= */
+/* ---------- last.fm ---------- */
 
 async function getRecentTracks() {
   const url =
@@ -69,13 +63,11 @@ async function getRecentTracks() {
   return json?.recenttracks?.track || [];
 }
 
-/* ================= MAIN ================= */
+/* ---------- main ---------- */
 
 async function main() {
   const now = Date.now();
   const tracks = await getRecentTracks();
-
-  /* ---- aggregate plays (last 7 days) ---- */
 
   const playMap = new Map();
 
@@ -86,7 +78,7 @@ async function main() {
     const playedAt = Number(t.date.uts) * 1000;
     if (now - playedAt > SEVEN_DAYS_MS) continue;
 
-    const track  = t.name.trim();
+    const track = t.name.trim();
     const artist = t.artist["#text"].trim();
     const key = `${track}|||${artist}`;
 
@@ -111,15 +103,13 @@ async function main() {
         const rank = `${index + 1}`.padStart(2, " ");
         const prefix = `${rank} ▶ `;
 
-        const trackText  = ellipsis(item.track, TRACK_WIDTH);
-        const artistText = ellipsis(item.artist, ARTIST_WIDTH);
+        const trackText = ellipsis(item.track, TRACK_WIDTH);
 
-        const dotsCount =
-          TOTAL_WIDTH -
-          visualLength(prefix) -
-          visualLength(trackText) -
-          visualLength(artistText) -
-          4; // spaces + icon
+        // Dot leader: short, capped, Spotify-style
+        const dotsCount = Math.min(
+          DOT_MAX,
+          Math.max(DOT_MIN, TRACK_WIDTH - visualLength(trackText))
+        );
 
         const dots = repeat(".", dotsCount);
 
@@ -129,13 +119,11 @@ async function main() {
           " " +
           dots +
           " 🎵 " +
-          artistText
+          item.artist
         );
       })
       .join("\n");
   }
-
-  /* ---- update gist ---- */
 
   const gist = await octokit.gists.get({ gist_id: GIST_ID });
   const filename = Object.keys(gist.data.files)[0];
