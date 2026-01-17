@@ -18,17 +18,17 @@ const MAX_ITEMS = 5;
 const BAR_LENGTH = 16;
 const TITLE_WIDTH = 28;
 
-/* ---------------- helpers ---------------- */
+/* ---------- helpers ---------- */
 
 function visualLength(str) {
-  return [...str].reduce((len, ch) => len + eaw.characterLength(ch), 0);
+  return [...str].reduce((l, c) => l + eaw.characterLength(c), 0);
 }
 
 function ellipsis(str, maxWidth) {
   let out = "";
-  for (const ch of str) {
-    if (visualLength(out + ch + "...") > maxWidth) break;
-    out += ch;
+  for (const c of str) {
+    if (visualLength(out + c + "...") > maxWidth) break;
+    out += c;
   }
   return visualLength(str) > maxWidth ? out + "..." : str;
 }
@@ -38,48 +38,69 @@ function padRight(str, width) {
   return diff > 0 ? str + " ".repeat(diff) : str;
 }
 
-function progressBar(percent, length) {
-  const filled = Math.round((percent / 100) * length);
-  return "█".repeat(filled) + "░".repeat(length - filled);
+function progressBar(pct, len) {
+  const filled = Math.round((pct / 100) * len);
+  return "█".repeat(filled) + "░".repeat(len - filled);
 }
 
-/* ---------------- last.fm ---------------- */
+/* ---------- last.fm ---------- */
 
-async function getWeeklyTopTracks() {
-  const url =
+async function fetchJSON(url) {
+  const res = await fetch(url);
+  return res.json();
+}
+
+async function getTopTracks() {
+  // 1️⃣ Try weekly chart first
+  const weeklyURL =
     `https://ws.audioscrobbler.com/2.0/?method=user.getweeklytrackchart` +
     `&user=${encodeURIComponent(LASTFM_USERNAME)}` +
     `&api_key=${LASTFM_API_KEY}` +
     `&format=json`;
 
-  const res = await fetch(url);
-  const json = await res.json();
+  const weekly = await fetchJSON(weeklyURL);
 
-  if (!json.weeklytrackchart?.track) {
-    throw new Error("Invalid Last.fm response");
+  if (weekly?.weeklytrackchart?.track?.length) {
+    return weekly.weeklytrackchart.track.map(t => ({
+      name: t.name,
+      plays: Number(t.playcount),
+    }));
   }
 
-  return json.weeklytrackchart.track.map(t => ({
+  // 2️⃣ Fallback → last 7 days top tracks (guaranteed)
+  const fallbackURL =
+    `https://ws.audioscrobbler.com/2.0/?method=user.gettoptracks` +
+    `&user=${encodeURIComponent(LASTFM_USERNAME)}` +
+    `&period=7day` +
+    `&limit=${MAX_ITEMS}` +
+    `&api_key=${LASTFM_API_KEY}` +
+    `&format=json`;
+
+  const fallback = await fetchJSON(fallbackURL);
+
+  if (!fallback?.toptracks?.track?.length) {
+    throw new Error("No Last.fm track data available");
+  }
+
+  return fallback.toptracks.track.map(t => ({
     name: t.name,
     plays: Number(t.playcount),
   }));
 }
 
-/* ---------------- main ---------------- */
+/* ---------- main ---------- */
 
 async function main() {
-  const tracks = await getWeeklyTopTracks();
-  const top = tracks.slice(0, MAX_ITEMS);
+  const tracks = (await getTopTracks()).slice(0, MAX_ITEMS);
+  const total = tracks.reduce((s, t) => s + t.plays, 0);
 
-  const totalPlays = top.reduce((s, t) => s + t.plays, 0);
-
-  const lines = top.map(t => {
+  const lines = tracks.map(t => {
     const title = padRight(
       ellipsis(t.name, TITLE_WIDTH),
       TITLE_WIDTH
     );
 
-    const bar = progressBar((t.plays / totalPlays) * 100, BAR_LENGTH);
+    const bar = progressBar((t.plays / total) * 100, BAR_LENGTH);
     const count = String(t.plays).padStart(4);
 
     return `${title} ${bar} ${count}`;
@@ -91,9 +112,7 @@ async function main() {
   await octokit.gists.update({
     gist_id: GIST_ID,
     files: {
-      [filename]: {
-        content: lines.join("\n"),
-      },
+      [filename]: { content: lines.join("\n") },
     },
   });
 }
