@@ -4,114 +4,101 @@ const fetch = require("node-fetch");
 const eaw = require("eastasianwidth");
 
 const {
-  GIST_ID: gistId,
-  GH_TOKEN: githubToken,
-  LASTFM_KEY: lfmAPI,
-  LFMUSERNAME: user,
+  GIST_ID,
+  GH_TOKEN,
+  LASTFM_API_KEY,
+  LASTFM_USERNAME,
 } = process.env;
 
 const octokit = new Octokit({
-  auth: `token ${githubToken}`,
+  auth: `token ${GH_TOKEN}`,
 });
 
-const API_BASE =
-  "http://ws.audioscrobbler.com/2.0/?method=user.gettopartists&format=json&period=7day&";
+const MAX_ITEMS = 5;
+const BAR_LENGTH = 16;
+const TITLE_WIDTH = 28;
+
+/* ---------------- helpers ---------------- */
+
+function visualLength(str) {
+  return [...str].reduce((len, ch) => len + eaw.characterLength(ch), 0);
+}
+
+function ellipsis(str, maxWidth) {
+  let out = "";
+  for (const ch of str) {
+    if (visualLength(out + ch + "...") > maxWidth) break;
+    out += ch;
+  }
+  return visualLength(str) > maxWidth ? out + "..." : str;
+}
+
+function padRight(str, width) {
+  const diff = width - visualLength(str);
+  return diff > 0 ? str + " ".repeat(diff) : str;
+}
+
+function progressBar(percent, length) {
+  const filled = Math.round((percent / 100) * length);
+  return "█".repeat(filled) + "░".repeat(length - filled);
+}
+
+/* ---------------- last.fm ---------------- */
+
+async function getWeeklyTopTracks() {
+  const url =
+    `https://ws.audioscrobbler.com/2.0/?method=user.getweeklytrackchart` +
+    `&user=${encodeURIComponent(LASTFM_USERNAME)}` +
+    `&api_key=${LASTFM_API_KEY}` +
+    `&format=json`;
+
+  const res = await fetch(url);
+  const json = await res.json();
+
+  if (!json.weeklytrackchart?.track) {
+    throw new Error("Invalid Last.fm response");
+  }
+
+  return json.weeklytrackchart.track.map(t => ({
+    name: t.name,
+    plays: Number(t.playcount),
+  }));
+}
+
+/* ---------------- main ---------------- */
 
 async function main() {
-  const username = user;
-  const gistID = gistId;
-  const lfm = lfmAPI;
+  const tracks = await getWeeklyTopTracks();
+  const top = tracks.slice(0, MAX_ITEMS);
 
-  if (!lfm || !username || !gistID || !githubToken)
-    throw new Error(
-      "Please check your environment variables, as you are missing one."
+  const totalPlays = top.reduce((s, t) => s + t.plays, 0);
+
+  const lines = top.map(t => {
+    const title = padRight(
+      ellipsis(t.name, TITLE_WIDTH),
+      TITLE_WIDTH
     );
-  const API = `${API_BASE}user=${username}&api_key=${lfm}`;
 
-  const data = await fetch(API);
-  const json = await data.json();
+    const bar = progressBar((t.plays / totalPlays) * 100, BAR_LENGTH);
+    const count = String(t.plays).padStart(4);
 
-  let gist;
-  try {
-    gist = await octokit.gists.get({
-      gist_id: gistID,
-    });
-  } catch (error) {
-    console.error(`music-box ran into an issue getting your Gist:\n${error}`);
-  }
+    return `${title} ${bar} ${count}`;
+  });
 
-  const numArtitst = Math.min(10, json.topartists.artist.length);
-  let playsTotal = 0;
-  for (let i = 0; i < numArtitst; i++) {
-    playsTotal += parseInt(json.topartists.artist[i].playcount, 10);
-  }
+  const gist = await octokit.gists.get({ gist_id: GIST_ID });
+  const filename = Object.keys(gist.data.files)[0];
 
-  const lines = [];
-  for (let i = 0; i < numArtitst; i++) {
-    const plays = json.topartists.artist[i].playcount;
-    let name = json.topartists.artist[i].name.substring(0, 25);
-    // trim off long widechars
-    for (let i = 24; i >= 0; i--) {
-      if (eaw.length(name) <= 26) break;
-      name = name.substring(0, i);
-    }
-    // pad short strings
-    name = name.padEnd(26 + name.length - eaw.length(name));
-
-    lines.push(
-      [
-        name,
-        generateBarChart((plays * 100) / playsTotal, 17),
-        `${plays}`.padStart(5),
-        "plays",
-      ].join(" ")
-    );
-  }
-
-  try {
-    // Get original filename to update that same file
-    const filename = Object.keys(gist.data.files)[0];
-    await octokit.gists.update({
-      gist_id: gistID,
-      files: {
-        [filename]: {
-          filename: `🎵 My last week in music`,
-          content: lines.join("\n"),
-        },
+  await octokit.gists.update({
+    gist_id: GIST_ID,
+    files: {
+      [filename]: {
+        content: lines.join("\n"),
       },
-    });
-  } catch (error) {
-    console.error(`Unable to update gist\n${error}`);
-  }
+    },
+  });
 }
 
-function generateBarChart(percent, size) {
-  const syms = "░▏▎▍▌▋▊▉█";
-
-  const frac = Math.floor((size * 8 * percent) / 100);
-  const barsFull = Math.floor(frac / 8);
-  if (barsFull >= size) {
-    return syms.substring(8, 9).repeat(size);
-  }
-  const semi = frac % 8;
-
-  return [syms.substring(8, 9).repeat(barsFull), syms.substring(semi, semi + 1)]
-    .join("")
-    .padEnd(size, syms.substring(0, 1));
-}
-
-async function updateGist() {
-  let gist;
-  try {
-    gist = await octokit.gists.get({
-      gist_id: gistID,
-    });
-  } catch (error) {
-    console.error(`music-box ran into an issue:\n${error}`);
-  }
-}
-
-(async () => {
-  await main();
-})();
-
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
