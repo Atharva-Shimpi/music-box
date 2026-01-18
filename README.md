@@ -25,7 +25,3 @@ This code was heavily inspired by [@JohnPhamous's strava-box](https://github.com
 - **GH_TOKEN:** The GitHub token generated above.
 - **LASTFM_KEY:** The API key you got from creating a Last.fm API account.
 - **LFMUSERNAME:** Your Last.fm username.
-
-## 💸 Donations
-
-Feel free to use the GitHub Sponsor button to donate towards my work if you're feeling generous <3
